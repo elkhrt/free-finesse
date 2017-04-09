@@ -293,101 +293,127 @@ class LineSolver
     }
 }
 
-sc = new SuitCombination(cards_from_string('AQT98'), cards_from_string('5432'));
-sc = new SuitCombination(cards_from_string('J5'), cards_from_string('AQ7642'));
-sc = new SuitCombination(cards_from_string('A5'), cards_from_string('JT643'));
-sc = new SuitCombination(cards_from_string('AJ8'), cards_from_string('T32'));
-sc = new SuitCombination(cards_from_string('AJ8'), cards_from_string('K932'));
-sc = new SuitCombination(cards_from_string('AJ4'), cards_from_string('K932'));
+function match_point_scores() {
+    score = new Array(ls.lines.length);
+    for (let a = 0; a < ls.lines.length; ++a) {
+        score[a] = new Array(ls.lines.length);
+        for (let b = 0; b < ls.lines.length; ++b) {
+            score[a][b] = 0;
+            for (let i = 0; i < sc.splits.length; ++i) {
+                let this_score = 0;
+                if (ls.lines[a][i] > ls.lines[b][i]) this_score = 1;
+                if (ls.lines[a][i] < ls.lines[b][i]) this_score = -1;
+                score[a][b] += sc.prob[i] * this_score;
+            }
+        }
+    }
+    active = new Array(ls.lines.length).fill(true);
+    function dominates(a, b) {
+        for (let c = 0; c < active.length; ++c)
+            if (active[c] && score[a][c] < score[b][c]) return false;
+        return true;
+    }
+    function eliminate_dominated() {
+        for (let a = 0; a < active.length; ++a)
+            if (active[a])
+                for (let b = 0; b < active.length; ++b)
+                    if (active[b] && a != b && dominates(a, b)) {
+                        active[b] = false;
+                        return true;
+                    }
+        return false;
+    }    
+    while (eliminate_dominated());
+    scores = [];
+    for (let a = 0; a < active.length; ++a)
+        if (active[a]) {
+            scores.push(["Match Points"]);
+            for (let j = 0; j < ls.lines.length; ++j)
+                scores[scores.length-1].push(score[j][a]*0.5+0.5);
+        }
+    return scores;
+}
 
+function expected_tricks()
+{
+    rv = ["Expected Tricks"]
+    for (let j = 0; j < ls.lines.length; ++j) {
+        e = 0.0
+        for (let i = 0; i < sc.splits.length; ++i)
+            e += sc.prob[i] * ls.lines[j][i];
+        rv.push(e);
+    }
+    return rv;
+}
+
+function guaranteed_tricks()
+{
+    rv = [];
+    for (let tt = 0; tt <= lc.tricks_total; ++tt) {
+        if (tt == lc.tricks_total) {
+            rv.push([tt + " tricks"])
+        } else {
+            rv.push([tt + "+ tricks"])
+        }
+        minp = 1.0;
+        for (let j = 0; j < ls.lines.length; ++j) {
+            p = 0.0
+            for (let i = 0; i < sc.splits.length; ++i)
+                if (ls.lines[j][i] >= tt)
+                    p += sc.prob[i];
+            if (p < minp) minp = p;
+            rv[rv.length-1].push(p);
+        }
+        if (minp == 1.0) rv.pop();
+    }
+    return rv;
+}
+
+function line_descriptions()
+{
+    rv = [];
+    for (let i = 0; i < sc.splits.length; ++i) {
+        rv.push([sc.split_to_string(sc.splits[i])]);
+        for (let j = 0; j < ls.lines.length; ++j) {
+            rv[rv.length-1].push(ls.lines[j][i]);
+        }
+    }
+    return rv;
+}
+
+function analysis_results(ls)
+{
+    let descriptions = line_descriptions();
+    let metrics = [expected_tricks()].concat(match_point_scores(), guaranteed_tricks());
+    console.log(metrics);
+    let good = Array(ls.lines.length).fill(false);
+    for (let i = 0; i < metrics.length; ++i) {
+        maxval = Math.max(...metrics[i].slice(1));
+        for (let j = 1; j < metrics[i].length; ++j) 
+            if (metrics[i][j] >= maxval - 1e-6)
+                good[j-1] = true;
+    }
+    return [...descriptions, ...metrics].map(vals => vals.filter((elt, idx) => idx == 0 || good[idx-1]));
+}
+
+function createTable(tableData) {
+  var table = document.createElement('table');
+  var tableBody = document.createElement('tbody');
+  tableData.forEach(function(rowData) {
+    var row = document.createElement('tr');
+    rowData.forEach(function(cellData) {
+      var cell = document.createElement('td');
+      cell.appendChild(document.createTextNode(cellData));
+      row.appendChild(cell);
+    });
+    tableBody.appendChild(row);
+  });
+  table.appendChild(tableBody);
+  document.body.appendChild(table);
+}
+
+sc = new SuitCombination(cards_from_string('AQT98'), cards_from_string('5432'));
 lc = new LineChecker(sc);
 ls = new LineSolver(lc);
 ls.solve();
-str = '';
-for (let j = 0; j < ls.lines.length; ++j) {
-    str += '\t'
-    str += "ABCDEFGHIJKL"[j];
-}
-console.log(str);
-str = '';
-for (let j = 0; j < ls.lines.length; ++j) {
-    str += '\t'
-    str += sc.group_to_card([lc.best_NS_play(ls.lines[j])]);
-}
-console.log(str);
-for (let i = 0; i < sc.splits.length; ++i) {
-    str = sc.split_to_string(sc.splits[i]);
-    for (let j = 0; j < ls.lines.length; ++j) {
-        str += '\t'
-        str += ls.lines[j][i];
-    }
-    console.log(str);
-}
-
-console.log('Probability of at least the specified number of tricks');
-for (let tt = 0; tt <= lc.tricks_total; ++tt) {
-    str = '' + tt;
-    for (let j = 0; j < ls.lines.length; ++j) {
-        str += '\t'
-        p = 0.0
-        for (let i = 0; i < sc.splits.length; ++i)
-            if (ls.lines[j][i] >= tt)
-                p += sc.prob[i];
-        str += p.toFixed(4);
-    }
-    console.log(str);
-}
-console.log('Expected number of tricks');
-str = '';
-for (let j = 0; j < ls.lines.length; ++j) {
-    str += '\t'
-    e = 0.0
-    for (let i = 0; i < sc.splits.length; ++i)
-        e += sc.prob[i] * ls.lines[j][i];
-    str += e.toFixed(4);
-}
-console.log(str);
-console.log("Match-point comparisons");
-score = new Array(ls.lines.length);
-for (let a = 0; a < ls.lines.length; ++a) {
-    score[a] = new Array(ls.lines.length);
-    for (let b = 0; b < ls.lines.length; ++b) {
-        score[a][b] = 0;
-        for (let i = 0; i < sc.splits.length; ++i) {
-            let this_score = 0;
-            if (ls.lines[a][i] > ls.lines[b][i]) this_score = 1;
-            if (ls.lines[a][i] < ls.lines[b][i]) this_score = -1;
-            score[a][b] += sc.prob[i] * this_score;
-        }
-    }
-}
-active = new Array(ls.lines.length).fill(true);
-function dominates(a, b) {
-    for (let c = 0; c < active.length; ++c)
-        if (active[c] && score[a][c] < score[b][c]) return false;
-    return true;
-}
-function eliminate_dominated() {
-    for (let a = 0; a < active.length; ++a)
-        if (active[a])
-            for (let b = 0; b < active.length; ++b)
-                if (active[b] && a != b && dominates(a, b)) {
-                    active[b] = false;
-                    return true;
-                }
-    return false;
-}    
-while (eliminate_dominated())
-{
-}
-
-for (let a = 0; a < active.length; ++a)
-    if (active[a]) {
-        str = "ABCDEFGHIJKL"[a];
-        for (let j = 0; j < ls.lines.length; ++j) {
-            str += '\t'
-            str += (score[j][a]*0.5+0.5).toFixed(4);
-        }
-        console.log(str);
-    }
-
+console.log(analysis_results(ls));
