@@ -1,3 +1,5 @@
+let epsilon = 1e-6;
+
 function cards_from_string(str) {
     if (str == 'none') return new Set();
     else return new Set(Array.from(str).map(ch => "23456789TJQKA".indexOf(ch)));
@@ -21,7 +23,7 @@ function canonical_splits(groups) {
         else for (let j = 0; j <= groups[i]; j++)
             yield* partial(i + 1, count * nCr(groups[i], j), e.concat([j]), w.concat([groups[i]-j]))
     }
-    return Array.from(partial(0, 1, [], []));
+    return Array.from(partial(0, 1, [], [])).sort((a, b) => sum(b[0]) - sum(a[0]));
 }
 
 function groups(N, S) {
@@ -68,14 +70,14 @@ class SuitCombination
         for (let g = 0; g < this.groups.length; ++g) {
             for (let i = 0; i < split[0][g]; ++i) e.push(c++);
             for (let i = 0; i < split[1][g]; ++i) w.push(c++);
-            c += sc.groups[g][0] + sc.groups[g][1];
+            c += this.groups[g][0] + this.groups[g][1];
         }
         return [e, w];
     }
 
     split_to_string(split) {
         let cards = this.split_to_cards(split);
-        return cards_to_string(cards[1]) + '-' + cards_to_string(cards[0]);
+        return cards_to_string(cards[1]) + ' - ' + cards_to_string(cards[0]);
     }
 }
 
@@ -239,6 +241,7 @@ class LineSolver
         this.expand_single_combination_lines();
         this.expand_equal_target_lines();
         this.expand_all_lines();
+        return this.lines;
     }
 
     expand_line_single_index(line, index) {
@@ -267,6 +270,7 @@ class LineSolver
 
     expand_all_lines() {
         while (this.queue.length) {
+            this.queue.sort((a, b) => sum(a) - sum(b));
             let line = this.queue.pop();
             if (!this.expand_line(line) && !this.dominated(line))
                 this.lines.push(line);
@@ -293,21 +297,62 @@ class LineSolver
     }
 }
 
-function match_point_scores() {
-    score = new Array(ls.lines.length);
-    for (let a = 0; a < ls.lines.length; ++a) {
-        score[a] = new Array(ls.lines.length);
-        for (let b = 0; b < ls.lines.length; ++b) {
+class AnalysisResult
+{
+    constructor(labels, values, formatter, highlight) {
+        this.labels = labels;
+        this.values = values;
+        this.formatter = formatter;
+        this.highlight = highlight;
+    }
+
+    make_row(table) {
+        var row = document.createElement('tr');
+        this.labels.forEach(function(label) {
+            var cell = document.createElement('th');
+            cell.appendChild(document.createTextNode(label));
+            row.appendChild(cell);
+        });
+        let formatter = this.formatter;
+        let maxval = Math.max(...this.values);
+        let highlight = this.highlight;
+        this.values.forEach(function(value) {
+            var cell = document.createElement('td');
+            cell.appendChild(document.createTextNode(formatter(value)));
+            if (highlight && value > maxval - epsilon) cell.style.fontWeight = 'bolder';
+            row.appendChild(cell);
+        });
+        return row;
+    }
+
+    filter(keep) {
+        return new AnalysisResult(this.labels, this.values.filter((value, index) => keep[index]), this.formatter, this.highlight);
+    }
+}
+
+function format_percentage(value) {
+    return (value * 100).toFixed(2) + "%";
+}
+
+function format_2dp(value) {
+    return value.toFixed(2);
+}
+
+function match_point_scores(sc, lines) {
+    score = new Array(lines.length);
+    for (let a = 0; a < lines.length; ++a) {
+        score[a] = new Array(lines.length);
+        for (let b = 0; b < lines.length; ++b) {
             score[a][b] = 0;
             for (let i = 0; i < sc.splits.length; ++i) {
                 let this_score = 0;
-                if (ls.lines[a][i] > ls.lines[b][i]) this_score = 1;
-                if (ls.lines[a][i] < ls.lines[b][i]) this_score = -1;
+                if (lines[a][i] > lines[b][i]) this_score = 1;
+                if (lines[a][i] < lines[b][i]) this_score = -1;
                 score[a][b] += sc.prob[i] * this_score;
             }
         }
     }
-    active = new Array(ls.lines.length).fill(true);
+    active = new Array(lines.length).fill(true);
     function dominates(a, b) {
         for (let c = 0; c < active.length; ++c)
             if (active[c] && score[a][c] < score[b][c]) return false;
@@ -324,96 +369,137 @@ function match_point_scores() {
         return false;
     }    
     while (eliminate_dominated());
-    scores = [];
+    rv = [];
     for (let a = 0; a < active.length; ++a)
         if (active[a]) {
-            scores.push(["Match Points"]);
-            for (let j = 0; j < ls.lines.length; ++j)
-                scores[scores.length-1].push(score[j][a]*0.5+0.5);
+            scores = [];
+            for (let j = 0; j < lines.length; ++j)
+                scores.push(score[j][a]*0.5+0.5);
+            rv.push(new AnalysisResult(["Match Points"], scores, format_percentage, true));
         }
-    return scores;
+    return rv;
 }
 
-function expected_tricks()
+function expected_tricks(sc, lines)
 {
-    rv = ["Expected Tricks"]
-    for (let j = 0; j < ls.lines.length; ++j) {
+    values = [];
+    for (let j = 0; j < lines.length; ++j) {
         e = 0.0
         for (let i = 0; i < sc.splits.length; ++i)
-            e += sc.prob[i] * ls.lines[j][i];
-        rv.push(e);
+            e += sc.prob[i] * lines[j][i];
+        values.push(e);
     }
-    return rv;
+    return new AnalysisResult(["Expected Tricks"], values, format_2dp, true);
 }
 
-function guaranteed_tricks()
+function guaranteed_tricks(sc, lines, min_tricks, max_tricks)
 {
     rv = [];
-    for (let tt = 0; tt <= lc.tricks_total; ++tt) {
-        if (tt == lc.tricks_total) {
-            rv.push([tt + " tricks"])
+    for (let tt = min_tricks; tt <= max_tricks; ++tt) {
+        if (tt == max_tricks) {
+            label = tt + " tricks";
         } else {
-            rv.push([tt + "+ tricks"])
+            label = tt + "+ tricks";
         }
         minp = 1.0;
-        for (let j = 0; j < ls.lines.length; ++j) {
+        values = [];
+        for (let j = 0; j < lines.length; ++j) {
             p = 0.0
             for (let i = 0; i < sc.splits.length; ++i)
-                if (ls.lines[j][i] >= tt)
+                if (lines[j][i] >= tt)
                     p += sc.prob[i];
             if (p < minp) minp = p;
-            rv[rv.length-1].push(p);
+            values.push(p);
         }
-        if (minp == 1.0) rv.pop();
+        if (minp < 1.0 - epsilon) rv.push(new AnalysisResult([label], values, format_percentage, true));
     }
     return rv;
 }
 
-function line_descriptions()
+function line_descriptions(sc, lines)
 {
     rv = [];
     for (let i = 0; i < sc.splits.length; ++i) {
-        rv.push([sc.split_to_string(sc.splits[i])]);
-        for (let j = 0; j < ls.lines.length; ++j) {
-            rv[rv.length-1].push(ls.lines[j][i]);
+        labels = [sc.split_to_string(sc.splits[i])];
+        values = [];
+        for (let j = 0; j < lines.length; ++j) {
+            values.push(lines[j][i]);
         }
+        rv.push(new AnalysisResult(labels, values, x => x, false));
     }
     return rv;
 }
 
-function analysis_results(ls)
+function line_label(index)
 {
-    let descriptions = line_descriptions();
-    let metrics = [expected_tricks()].concat(match_point_scores(), guaranteed_tricks());
-    console.log(metrics);
-    let good = Array(ls.lines.length).fill(false);
-    for (let i = 0; i < metrics.length; ++i) {
-        maxval = Math.max(...metrics[i].slice(1));
-        for (let j = 1; j < metrics[i].length; ++j) 
-            if (metrics[i][j] >= maxval - 1e-6)
-                good[j-1] = true;
-    }
-    return [...descriptions, ...metrics].map(vals => vals.filter((elt, idx) => idx == 0 || good[idx-1]));
+    labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    label = 'Line ';
+    do {
+        label += labels[index % labels.length];
+        index = Math.floor(index / labels.length);
+    } while (index);
+    return label;
 }
 
-function createTable(tableData) {
+function analysis_results(sc, lines, tricks_total)
+{
+    let labels = new AnalysisResult([""], lines.map((value, index) => line_label(index)), x => x, false);
+    let descriptions = line_descriptions(sc, lines);
+    let metrics = [expected_tricks(sc, lines)].concat(match_point_scores(sc, lines), guaranteed_tricks(sc, lines, 0, tricks_total));
+    let good = Array(lines.length).fill(false);
+    for (let i = 0; i < metrics.length; ++i) {
+        maxval = Math.max(...metrics[i].values);
+        for (let j = 0; j < metrics[i].values.length; ++j) 
+            if (metrics[i].values[j] >= maxval - epsilon)
+                good[j] = true;
+    }
+
+    function dominated(line) {
+        for (let other = 0; other < good.length; ++other)
+            if (dominates(other, line)) return true;
+        return false;
+    }
+
+    function dominates(line, other) {
+        for (let i = 0; i < metrics.length; ++i)
+            if (metrics[i].values[line] <= metrics[i].values[other] - epsilon)
+                return false;
+        for (let i = 0; i < metrics.length; ++i)
+            if (metrics[i].values[line] >= metrics[i].values[other] + epsilon)
+                return true;
+        return false;
+    }
+
+    for (let line = 0; line < good.length; ++line)
+        if (dominated(line)) good[line] = false;
+
+    return [labels, ...descriptions, ...metrics].map(ar => ar.filter(good));
+}
+
+function analyze(north, south) {
+  let sc = new SuitCombination(cards_from_string(north), cards_from_string(south));
+  let lc = new LineChecker(sc);
+  let ls = new LineSolver(lc);
+  let lines = ls.solve();
+  let tableData = analysis_results(sc, lines, lc.tricks_total);
+  var div_analysis = document.getElementById('analysis');
+  div_analysis.innerHTML = '';
   var table = document.createElement('table');
   var tableBody = document.createElement('tbody');
-  tableData.forEach(function(rowData) {
-    var row = document.createElement('tr');
-    rowData.forEach(function(cellData) {
-      var cell = document.createElement('td');
-      cell.appendChild(document.createTextNode(cellData));
-      row.appendChild(cell);
-    });
-    tableBody.appendChild(row);
+  tableData.forEach(function(row) {
+    tableBody.appendChild(row.make_row(table));
   });
   table.appendChild(tableBody);
-  document.body.appendChild(table);
+  div_analysis.appendChild(table);
 }
 
-sc = new SuitCombination(cards_from_string('AQT98'), cards_from_string('5432'));
-lc = new LineChecker(sc);
-ls = new LineSolver(lc);
-ls.solve();
-console.log(analysis_results(ls));
+function analyze_test(north, south) {
+  let sc = new SuitCombination(cards_from_string(north), cards_from_string(south));
+  let lc = new LineChecker(sc);
+  let ls = new LineSolver(lc);
+  let lines = ls.solve();
+  let data = analysis_results(sc, lines, lc.tricks_total);
+  console.log(data);
+}
+
+// analyze_test('AQT', '432');
