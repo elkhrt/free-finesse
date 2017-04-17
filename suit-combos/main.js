@@ -58,7 +58,7 @@ class SuitCombination
     group_to_card(group) {
         let c = 0;
         for (let g = 0; g < group; ++g) {
-            c += sc.groups[g][0] + sc.groups[g][1] + sc.groups[g][2];
+            c += this.groups[g][0] + this.groups[g][1] + this.groups[g][2];
         }
         return '23456789TJQKA'[c];
     }
@@ -185,7 +185,7 @@ class LineChecker
         return this.winning_play_p1(layout_targets);
     }
 
-    best_NS_play(trick_targets)
+    first_NS_play(trick_targets)
     {
         let layout_targets = [];
         for (let i = 0; i < this.dealt_ew.length; ++i)
@@ -416,6 +416,16 @@ function guaranteed_tricks(sc, lines, min_tricks, max_tricks)
     return rv;
 }
 
+function line_narratives(sc, lc, lines)
+{
+    values = [];
+    for (let j = 0; j < lines.length; ++j) {
+        values.push(lc.first_NS_play(lines[j]));
+    }
+    cts = (x => sc.group_to_card(x));
+    return new AnalysisResult(["First Play"], values, cts, false);
+}
+
 function line_descriptions(sc, lines)
 {
     rv = [];
@@ -441,12 +451,14 @@ function line_label(index)
     return label;
 }
 
-function analysis_results(sc, lines, tricks_total, filter)
+function analysis_results(sc, lines, lc, tricks_total, filter)
 {
     let labels = new AnalysisResult([""], lines.map((value, index) => line_label(index)), x => x, false);
     let descriptions = line_descriptions(sc, lines);
+    let narratives = line_narratives(sc, lc, lines);
     let metrics = [expected_tricks(sc, lines)].concat(match_point_scores(sc, lines), guaranteed_tricks(sc, lines, 0, tricks_total));
-    if (!filter) return [labels, ...descriptions, ...metrics];
+    let all_lines = [labels, narratives, ...descriptions, ...metrics];;
+    if (!filter) return all_lines;
 
     let good = Array(lines.length).fill(false);
     for (let i = 0; i < metrics.length; ++i) {
@@ -475,7 +487,7 @@ function analysis_results(sc, lines, tricks_total, filter)
     for (let line = 0; line < good.length; ++line)
         if (dominated(line)) good[line] = false;
 
-    return [labels, ...descriptions, ...metrics].map(ar => ar.filter(good));
+    return all_lines.map(ar => ar.filter(good));
 }
 
 function analyze(north, south, filter) {
@@ -483,7 +495,7 @@ function analyze(north, south, filter) {
   let lc = new LineChecker(sc);
   let ls = new LineSolver(lc);
   let lines = ls.solve();
-  let tableData = analysis_results(sc, lines, lc.tricks_total, filter);
+  let tableData = analysis_results(sc, lines, lc, lc.tricks_total, filter);
   var div_analysis = document.getElementById('analysis');
   div_analysis.innerHTML = '';
   var table = document.createElement('table');
@@ -495,13 +507,3 @@ function analyze(north, south, filter) {
   div_analysis.appendChild(table);
 }
 
-function analyze_test(north, south) {
-  let sc = new SuitCombination(cards_from_string(north), cards_from_string(south));
-  let lc = new LineChecker(sc);
-  let ls = new LineSolver(lc);
-  let lines = ls.solve();
-  let data = analysis_results(sc, lines, lc.tricks_total);
-  console.log(data);
-}
-
-// analyze_test('AQT', '432');
