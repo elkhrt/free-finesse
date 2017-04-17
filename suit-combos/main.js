@@ -441,11 +441,13 @@ function line_label(index)
     return label;
 }
 
-function analysis_results(sc, lines, tricks_total)
+function analysis_results(sc, lines, tricks_total, filter)
 {
     let labels = new AnalysisResult([""], lines.map((value, index) => line_label(index)), x => x, false);
     let descriptions = line_descriptions(sc, lines);
     let metrics = [expected_tricks(sc, lines)].concat(match_point_scores(sc, lines), guaranteed_tricks(sc, lines, 0, tricks_total));
+    if (!filter) return [labels, ...descriptions, ...metrics];
+
     let good = Array(lines.length).fill(false);
     for (let i = 0; i < metrics.length; ++i) {
         maxval = Math.max(...metrics[i].values);
@@ -476,12 +478,12 @@ function analysis_results(sc, lines, tricks_total)
     return [labels, ...descriptions, ...metrics].map(ar => ar.filter(good));
 }
 
-function analyze(north, south) {
+function analyze(north, south, filter) {
   let sc = new SuitCombination(cards_from_string(north), cards_from_string(south));
   let lc = new LineChecker(sc);
   let ls = new LineSolver(lc);
   let lines = ls.solve();
-  let tableData = analysis_results(sc, lines, lc.tricks_total);
+  let tableData = analysis_results(sc, lines, lc.tricks_total, filter);
   var div_analysis = document.getElementById('analysis');
   div_analysis.innerHTML = '';
   var table = document.createElement('table');

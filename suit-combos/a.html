@@ -6,7 +6,8 @@
         Suit Combination Analyzer<br/>
         <input type="text" id="north" value="AQT98"><br/>
         <input type="text" id="south" value="7654"><br/>
-        <button onclick='analyze(document.getElementById("north").value, document.getElementById("south").value)'>Analyze</button>
+        <input type="checkbox" id="filter" checked="checked">Only report best lines.<br/>
+        <button onclick='analyze(document.getElementById("north").value, document.getElementById("south").value, document.getElementById("filter").checked)'>Analyze</button>
         <div id='analysis'>Analysis results go here</div>
     </body>
 </html>
