@@ -91,14 +91,80 @@ class LineChecker
         this.tricks_total = Math.max(sum(this.dealt_ns[0]), sum(this.dealt_ns[1]));        
     }
 
-    check_play_NS(turn, player, play, continuation) {
-        if (this.played_ns[player][play] >= this.dealt_ns[player][play]) return false;
-        if (play != -1) this.played_ns[player][play]++;
-        this.plays[this.turn++] = play;
-        let counter = continuation();
-        this.turn--;
-        if (play != -1) this.played_ns[player][play]--;
-        return !counter;
+    check_p1(targets_in, turn) {
+        let targets = targets_in.filter(lt => (lt[1] > 0)
+            && (Math.max(sum(lt[0][0]), sum(lt[0][1])) + lt[1] > this.tricks_total));
+        // TODO - better filtering
+        if (!targets.length) return true;
+        if (targets.some(lt => lt[1] + Math.floor(turn / 4) > this.tricks_total)) return false;
+        for (let play = 0; play < this.num_groups; ++play) {
+            for (let player = 0; player < 2; ++player) {
+                if (this.played_ns[player][play] < this.dealt_ns[player][play]) {
+                    this.plays[turn] = play;
+                    this.played_ns[player][play]++;
+                    let counter = this.check_p2(targets, turn+1, player);
+                    this.played_ns[player][play]--;
+                    if (!counter) return true;
+                }
+            }
+        }
+        return false;        
+    }
+
+    check_p2(targets_in, turn, player) {
+        for (let play = 0; play < this.num_groups; ++play) {
+            let remaining_layouts = targets_in.filter(lt => lt[0][player][play] > this.played_ew[player][play]);
+            if (remaining_layouts.length) {
+                this.plays[turn] = play;
+                this.played_ew[player][play]++;
+                let counter = this.check_p3(remaining_layouts, turn+1, 1-player);
+                this.played_ew[player][play]--;
+                if (!counter) return true;
+            }
+        }
+        let void_layouts = targets_in.filter(lt => sum(lt[0][player]) <= Math.floor(turn / 4));
+        if (void_layouts.length) {
+            this.plays[turn] = -1;
+            return !this.check_p3(void_layouts, turn+1, 1-player);
+        }
+        return false;
+    }
+
+    check_p3(targets, turn, player) {
+        if (this.is_void_NS(player)) {
+            this.plays[turn] = -1;
+            return !check_p4(targets_in, turn+1, player);
+        } else {
+            for (let play = 0; play < this.num_groups; ++play) {
+                if (this.played_ns[player][play] < this.dealt_ns[player][play]) {
+                    this.plays[turn] = play;
+                    this.played_ns[player][play]++;
+                    let counter = this.check_p4(targets, turn+1, player);
+                    this.played_ns[player][play]--;
+                    if (!counter) return true;
+                }
+            }
+            return false;
+        }
+    }  
+
+    check_p4(targets_in, turn, player) {
+        for (let play = 0; play < this.num_groups; ++play) {
+            let remaining_layouts = targets_in.filter(lt => lt[0][player][play] > this.played_ew[player][play]);
+            if (remaining_layouts.length) {
+                this.plays[turn] = play;
+                this.played_ew[player][play]++;
+                let counter = this.check_p5(remaining_layouts, turn+1);
+                this.played_ew[player][play]--;
+                if (!counter) return true;
+            }
+        }
+        let void_layouts = targets_in.filter(lt => sum(lt[0][player]) <= Math.floor(turn / 4));
+        if (void_layouts.length) {
+            this.plays[turn] = -1;
+            return !this.check_p5(void_layouts, turn+1);
+        }
+        return false;
     }
 
     is_void_NS(player) {
@@ -107,98 +173,23 @@ class LineChecker
         return true;
     }
 
-    check_play_EW(turn, player, play, continuation) {
-        if (play != -1) this.played_ew[player][play]++;
-        this.plays[this.turn++] = play;
-        let counter = continuation();
-        this.turn--;
-        if (play != -1) this.played_ew[player][play]--;
-        return !counter;
-    }
-
-    winning_play_p1(layout_targets) {
-        let targets = layout_targets.filter(lt => (lt[1] > 0)
-            && (Math.max(sum(lt[0][0]), sum(lt[0][1])) + lt[1] > this.tricks_total));
-        if (!targets.length) return true;
-        if (targets.some(lt => lt[1] > this.tricks_left)) return false;
-        for (let play = 0; play < this.num_groups; ++play) {
-            if (this.check_play_NS(0, 0, play, () => this.winning_play_p2_E(targets))) return true;
-            if (this.check_play_NS(0, 1, play, () => this.winning_play_p2_W(targets))) return true;
-        }
-        return false;
-    }
-
-    winning_play_EW(turn, player, layouts, continuation) {
-        for (let play = 0; play < this.num_groups; ++play) {
-            let remaining_layouts = layouts.filter(lt => lt[0][player][play] > this.played_ew[player][play]);
-            if (remaining_layouts.length) {
-                let next_continuation = (() => continuation(remaining_layouts));
-                if (this.check_play_EW(turn, player, play, next_continuation)) return true;
-            }
-        }
-        let void_layouts = layouts.filter(lt => sum(lt[0][player]) <= (this.tricks_total - this.tricks_left));
-        if (void_layouts.length) {
-            let void_coninutation = (() => continuation(void_layouts));
-            return this.check_play_EW(turn, player, -1, void_coninutation);
-        }
-    }
-
-    winning_play_p2_E(layout_targets) { return this.winning_play_EW(1, 0, layout_targets, (layouts) => this.winning_play_p3_S(layouts)); }
-    winning_play_p2_W(layout_targets) { return this.winning_play_EW(1, 1, layout_targets, (layouts) => this.winning_play_p3_N(layouts)); }
-    winning_play_p4_E(layout_targets) { return this.winning_play_EW(3, 0, layout_targets, (layouts) => this.winning_play_p5(layouts)); }
-    winning_play_p4_W(layout_targets) { return this.winning_play_EW(3, 1, layout_targets, (layouts) => this.winning_play_p5(layouts)); }
-
-    winning_play_p3_NS(player, continuation) {
-        if (this.is_void_NS(player)) {
-            return this.check_play_NS(2, player, -1, continuation);
-        } else {
-            for (let play = 0; play < this.num_groups; ++play)
-                if (this.check_play_NS(2, player, play, continuation)) return true;
-            return false;
-        }
-    }  
-
-    winning_play_p3_N(layout_targets) { return this.winning_play_p3_NS(0, () => this.winning_play_p4_E(layout_targets)); }
-    winning_play_p3_S(layout_targets) { return this.winning_play_p3_NS(1, () => this.winning_play_p4_W(layout_targets)); }
-
-    winning_play_p5(layouts) {
-        let i = this.turn - 4;
+    check_p5(layouts, turn) {
+        let i = turn - 4;
         let is_ns_trick = (this.plays[i+0] > this.plays[i+1] && this.plays[i+0] > this.plays[i+3])
                         || (this.plays[i+2] > this.plays[i+1] && this.plays[i+2] > this.plays[i+3]);
         let next_layouts = layouts.map(lt => [lt[0], lt[1] - is_ns_trick]);
-        this.tricks_left--;
-        let wins = this.winning_play_p1(next_layouts);
-        this.tricks_left++;
-        return wins;
+        return this.check_p1(next_layouts, turn);
     }
 
     feasible(trick_targets) {
-        this.tricks_left = this.tricks_total;
-        this.turn = 0;
         this.played_ns = [new Array(this.num_groups).fill(0), new Array(this.num_groups).fill(0)];
         this.played_ew = [new Array(this.num_groups).fill(0), new Array(this.num_groups).fill(0)];
-        this.plays = new Array(4 * this.tricks_left).fill(-1);
+        this.plays = new Array(4 * this.tricks_total).fill(-1);
         let layout_targets = [];
         for (let i = 0; i < this.dealt_ew.length; ++i)
             if (trick_targets[i])
                 layout_targets.push([this.dealt_ew[i], trick_targets[i]]);
-        return this.winning_play_p1(layout_targets);
-    }
-
-    first_NS_play(trick_targets)
-    {
-        let layout_targets = [];
-        for (let i = 0; i < this.dealt_ew.length; ++i)
-            if (trick_targets[i])
-                layout_targets.push([this.dealt_ew[i], trick_targets[i]]);
-        let targets = layout_targets.filter(lt => (lt[1] > 0)
-            && (Math.max(sum(lt[0][0]), sum(lt[0][1])) + lt[1] > this.tricks_total));
-        if (targets.some(lt => lt[1] > this.tricks_left)) return -1;
-        for (let play = this.num_groups-1; play >= 0; --play) {
-            if (this.check_play_NS(0, 0, play, () => this.winning_play_p2_E(targets))) return play;
-            if (this.check_play_NS(0, 1, play, () => this.winning_play_p2_W(targets))) return play;
-        }
-        return -1;
+        return this.check_p1(layout_targets, 0);
     }
 }
 
@@ -420,7 +411,7 @@ function line_narratives(sc, lc, lines)
 {
     values = [];
     for (let j = 0; j < lines.length; ++j) {
-        values.push(lc.first_NS_play(lines[j]));
+        values.push(0);
     }
     cts = (x => sc.group_to_card(x));
     return new AnalysisResult(["First Play"], values, cts, false);
@@ -507,3 +498,7 @@ function analyze(north, south, filter) {
   div_analysis.appendChild(table);
 }
 
+module.exports.cards_from_string = cards_from_string
+module.exports.SuitCombination = SuitCombination;
+module.exports.LineChecker = LineChecker;
+module.exports.LineSolver = LineSolver;
