@@ -63,6 +63,14 @@ class SuitCombination
         return '23456789TJQKA'[c];
     }
 
+    group_to_cards(group) {
+        let c = 0;
+        for (let g = 0; g < group; ++g) {
+            c += this.groups[g][0] + this.groups[g][1] + this.groups[g][2];
+        }
+        return '23456789TJQKA'.slice(c, c+this.groups[group][2]);
+    }
+
     split_to_cards(split) {
         let e = [];
         let w = [];
@@ -133,7 +141,7 @@ class LineChecker
     check_p3(targets, turn, player) {
         if (this.is_void_NS(player)) {
             this.plays[turn] = -1;
-            return !check_p4(targets_in, turn+1, player);
+            return !this.check_p4(targets, turn+1, player);
         } else {
             for (let play = 0; play < this.num_groups; ++play) {
                 if (this.played_ns[player][play] < this.dealt_ns[player][play]) {
@@ -182,6 +190,123 @@ class LineChecker
     }
 
     feasible(trick_targets) {
+        this.played_ns = [new Array(this.num_groups).fill(0), new Array(this.num_groups).fill(0)];
+        this.played_ew = [new Array(this.num_groups).fill(0), new Array(this.num_groups).fill(0)];
+        this.plays = new Array(4 * this.tricks_total).fill(-1);
+        let layout_targets = [];
+        for (let i = 0; i < this.dealt_ew.length; ++i)
+            if (trick_targets[i])
+                layout_targets.push([this.dealt_ew[i], trick_targets[i]]);
+        return this.check_p1(layout_targets, 0);
+    }
+}
+
+class LineTree
+{
+    constructor(suit_combination) {
+        this.num_groups = suit_combination.groups.length;
+        this.dealt_ns = [suit_combination.groups.map(g => g[0]), 
+                         suit_combination.groups.map(g => g[1])];
+        this.dealt_ew = suit_combination.splits.map(tc => [tc[0], tc[1]]);
+        this.tricks_total = Math.max(sum(this.dealt_ns[0]), sum(this.dealt_ns[1]));        
+    }
+
+    check_p1(targets_in, turn) {
+        let targets = targets_in.filter(lt => (lt[1] > 0)
+            && (Math.max(sum(lt[0][0]), sum(lt[0][1])) + lt[1] > this.tricks_total));
+        // TODO - better filtering
+        if (!targets.length) return [];
+        if (targets.some(lt => lt[1] + Math.floor(turn / 4) > this.tricks_total)) return false;
+        // TODO - better move ordering
+        for (let play = this.num_groups; play >= 0; --play) {
+            for (let player = 0; player < 2; ++player) {
+                if (this.played_ns[player][play] < this.dealt_ns[player][play]) {
+                    this.plays[turn] = play;
+                    this.played_ns[player][play]++;
+                    let subtree = this.check_p2(targets, turn+1, player);
+                    this.played_ns[player][play]--;
+                    if (subtree !== false) return [[play, subtree]];
+                }
+            }
+        }
+        return false;
+    }
+
+    check_p2(targets_in, turn, player) {
+        let tree = [];
+        for (let play = 0; play < this.num_groups; ++play) {
+            let remaining_layouts = targets_in.filter(lt => lt[0][player][play] > this.played_ew[player][play]);
+            if (remaining_layouts.length) {
+                this.plays[turn] = play;
+                this.played_ew[player][play]++;
+                let subtree = this.check_p3(remaining_layouts, turn+1, 1-player);
+                this.played_ew[player][play]--;
+                if (subtree === false) return false;
+                tree.push([play, subtree]);
+            }
+        }
+        let void_layouts = targets_in.filter(lt => sum(lt[0][player]) <= Math.floor(turn / 4));
+        if (void_layouts.length) {
+            this.plays[turn] = -1;
+            if (this.check_p3(void_layouts, turn+1, 1-player) === false) return false;
+        }
+        return tree;
+    }
+
+    check_p3(targets_in, turn, player) {
+        if (this.is_void_NS(player)) {
+            this.plays[turn] = -1;
+            return this.check_p4(targets_in, turn+1, player);
+        } else {
+            for (let play = 0; play < this.num_groups; ++play) {
+                if (this.played_ns[player][play] < this.dealt_ns[player][play]) {
+                    this.plays[turn] = play;
+                    this.played_ns[player][play]++;
+                    let subtree = this.check_p4(targets_in, turn+1, player);
+                    this.played_ns[player][play]--;
+                    if (subtree !== false) return [[play, subtree]];
+                }
+            }
+            return false;
+        }
+    }  
+
+    check_p4(targets_in, turn, player) {
+        let tree = [];
+        for (let play = 0; play < this.num_groups; ++play) {
+            let remaining_layouts = targets_in.filter(lt => lt[0][player][play] > this.played_ew[player][play]);
+            if (remaining_layouts.length) {
+                this.plays[turn] = play;
+                this.played_ew[player][play]++;
+                let subtree = this.check_p5(remaining_layouts, turn+1);
+                this.played_ew[player][play]--;
+                if (subtree === false) return false;
+                tree.push([play, subtree]);
+            }
+        }
+        let void_layouts = targets_in.filter(lt => sum(lt[0][player]) <= Math.floor(turn / 4));
+        if (void_layouts.length) {
+            this.plays[turn] = -1;
+            if (this.check_p5(void_layouts, turn+1) === false) return false;
+        }
+        return tree;
+    }
+
+    is_void_NS(player) {
+        for (let play = 0; play < this.num_groups; ++play)
+            if (this.played_ns[player][play] < this.dealt_ns[player][play]) return false;
+        return true;
+    }
+
+    check_p5(layouts, turn) {
+        let i = turn - 4;
+        let is_ns_trick = (this.plays[i+0] > this.plays[i+1] && this.plays[i+0] > this.plays[i+3])
+                        || (this.plays[i+2] > this.plays[i+1] && this.plays[i+2] > this.plays[i+3]);
+        let next_layouts = layouts.map(lt => [lt[0], lt[1] - is_ns_trick]);
+        return this.check_p1(next_layouts, turn);
+    }
+
+    tree_for_line(trick_targets) {
         this.played_ns = [new Array(this.num_groups).fill(0), new Array(this.num_groups).fill(0)];
         this.played_ew = [new Array(this.num_groups).fill(0), new Array(this.num_groups).fill(0)];
         this.plays = new Array(4 * this.tricks_total).fill(-1);
@@ -309,7 +434,8 @@ class AnalysisResult
         let highlight = this.highlight;
         this.values.forEach(function(value) {
             var cell = document.createElement('td');
-            cell.appendChild(document.createTextNode(formatter(value)));
+            cell.innerHTML = formatter(value);
+            //cell.appendChild(document.createTextNode(formatter(value)));
             if (highlight && value > maxval - epsilon) cell.style.fontWeight = 'bolder';
             row.appendChild(cell);
         });
@@ -407,14 +533,31 @@ function guaranteed_tricks(sc, lines, min_tricks, max_tricks)
     return rv;
 }
 
-function line_narratives(sc, lc, lines)
+function line_narratives(sc, lines)
 {
     values = [];
+    let lt = new LineTree(sc);
+    let p3_values = [];
+    let p1_values = [];
     for (let j = 0; j < lines.length; ++j) {
-        values.push(0);
+        let full_tree = lt.tree_for_line(lines[j]);
+        let tree = full_tree[0];
+        p1_values.push(sc.group_to_card(tree[0]));
+        var responses = new Map();
+        for (let i = 0; i < tree[1].length; ++i) {
+            let p2 = tree[1][i][0];
+            let p3 = tree[1][i][1][0][0];
+            responses.set(p3, (responses.get(p3) || '') + sc.group_to_cards(p2));
+        }
+        let p3 = '';
+        for (var e of responses.entries()) {
+            if (p3.length > 0) p3 += '<br/>';
+            p3 += e[1] + ' -> ' + sc.group_to_card(e[0]);
+        }
+        p3_values.push(p3);
     }
-    cts = (x => sc.group_to_card(x));
-    return new AnalysisResult(["First Play"], values, cts, false);
+    return [new AnalysisResult(["Lead"], p1_values, (x => x), false),
+            new AnalysisResult(["Follow"], p3_values, (x => x), false)];
 }
 
 function line_descriptions(sc, lines)
@@ -442,13 +585,13 @@ function line_label(index)
     return label;
 }
 
-function analysis_results(sc, lines, lc, tricks_total, filter)
+function analysis_results(sc, lines, tricks_total, filter)
 {
     let labels = new AnalysisResult([""], lines.map((value, index) => line_label(index)), x => x, false);
     let descriptions = line_descriptions(sc, lines);
-    let narratives = line_narratives(sc, lc, lines);
+    let narratives = line_narratives(sc, lines);
     let metrics = [expected_tricks(sc, lines)].concat(match_point_scores(sc, lines), guaranteed_tricks(sc, lines, 0, tricks_total));
-    let all_lines = [labels, narratives, ...descriptions, ...metrics];;
+    let all_lines = [labels, ...narratives, ...descriptions, ...metrics];;
     if (!filter) return all_lines;
 
     let good = Array(lines.length).fill(false);
@@ -486,7 +629,7 @@ function analyze(north, south, filter) {
   let lc = new LineChecker(sc);
   let ls = new LineSolver(lc);
   let lines = ls.solve();
-  let tableData = analysis_results(sc, lines, lc, lc.tricks_total, filter);
+  let tableData = analysis_results(sc, lines, lc.tricks_total, filter);
   var div_analysis = document.getElementById('analysis');
   div_analysis.innerHTML = '';
   var table = document.createElement('table');
@@ -502,3 +645,4 @@ module.exports.cards_from_string = cards_from_string
 module.exports.SuitCombination = SuitCombination;
 module.exports.LineChecker = LineChecker;
 module.exports.LineSolver = LineSolver;
+module.exports.LineTree = LineTree;

@@ -20,6 +20,11 @@ function test_1()
       [ 3, 4, 4, 3, 4, 4, 5, 4, 4, 5, 3, 5 ],
       [ 3, 4, 4, 3, 5, 4, 5, 4, 3, 4, 5, 4 ] ];
   assert.deepEqual(expected.sort(), actual.sort());
+  let lt = new core.LineTree(sc);
+  for (let i = 0; i < expected.length; ++i) {
+    let tree = lt.tree_for_line(expected[i]);
+    console.log('Line ' + i, tree);
+  }
   console.log('Analysis time: ' + duration + ' millisec')
 }
 
