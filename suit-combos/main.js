@@ -350,9 +350,9 @@ class LineSolver
     }
 
     solve() {
-        this.queue = []
-        this.fails = []
-        this.lines = []
+        this.queue = [];
+        this.fails = [];
+        this.lines = [];
         this.expansion_count = 0;
         this.expand_single_combination_lines();
         this.expand_equal_target_lines();
@@ -395,7 +395,7 @@ class LineSolver
 
     check_line_(line) {
         for (let fail of this.fails)
-            if (line.every((tricks, i) => tricks >= this.fails[i])) return false;
+            if (line.every((tricks, i) => tricks >= fail[i])) return false;
         if (this.checker.feasible(line)) {
             return true;
         } else {
@@ -577,11 +577,14 @@ function line_descriptions(sc, lines)
 function line_label(index)
 {
     labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    label = 'Line ';
+    label = '';
+    index += 1;
     do {
-        label += labels[index % labels.length];
+        index -= 1;
+        label = labels[index % labels.length] + label;
         index = Math.floor(index / labels.length);
     } while (index);
+    label = 'Line ' + label;
     return label;
 }
 
