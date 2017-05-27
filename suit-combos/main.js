@@ -557,7 +557,7 @@ function line_narratives(sc, lines)
         p3_values.push(p3);
     }
     return [new AnalysisResult(["Lead"], p1_values, (x => x), false),
-            new AnalysisResult(["Follow"], p3_values, (x => x), false)];
+            new AnalysisResult(["Trick 1"], p3_values, (x => x), false)];
 }
 
 function line_descriptions(sc, lines)
@@ -627,25 +627,103 @@ function analysis_results(sc, lines, tricks_total, filter)
     return all_lines.map(ar => ar.filter(good));
 }
 
-function analyze(north, south, filter) {
-  let sc = new SuitCombination(cards_from_string(north), cards_from_string(south));
-  let lc = new LineChecker(sc);
-  let ls = new LineSolver(lc);
-  let lines = ls.solve();
-  let tableData = analysis_results(sc, lines, lc.tricks_total, filter);
-  var div_analysis = document.getElementById('analysis');
-  div_analysis.innerHTML = '';
-  var table = document.createElement('table');
-  var tableBody = document.createElement('tbody');
-  tableData.forEach(function(row) {
-    tableBody.appendChild(row.make_row(table));
-  });
-  table.appendChild(tableBody);
-  div_analysis.appendChild(table);
+var state = {
+    n: 'AQT98',
+    s: '7654',
+    lines: [],
+    show_all_lines: true,
+    update_from_url: function() {
+        params = new URLSearchParams(window.location.search);
+        if (params.has('n')) this.n = params.get('n');
+        if (params.has('s')) this.s = params.get('s');
+        this.show_all_lines = params.has('a');
+        this.lines = params.getAll('l').map(s => Array.from(s).map(c => '0123456789abcd'.indexOf(c)));
+        state.sc = new SuitCombination(cards_from_string(state.n), cards_from_string(this.s));
+        state.lc = new LineChecker(this.sc);
+        state.ls = new LineSolver(this.lc);
+    },
+    update: function(n, s, a) {
+        this.n = n;
+        this.s = s;
+        this.show_all_lines = a;
+        this.lines = [];
+    },
+    url_string: function() {
+        str = 'a.html?n=' + this.n + '&s=' + this.s;
+        if (this.show_all_lines) str += '&a=1';     
+        if (this.lines.length > 0) str += '&l=' + this.lines.map(line => line.map(t => '0123456789abcd'[t]).join('')).join('&l=');
+        return str; 
+    },
+    title: function() {
+        return 'Suit Combination Analyzer: ' + north + ' - ' + south;
+    }
 }
 
-module.exports.cards_from_string = cards_from_string
-module.exports.SuitCombination = SuitCombination;
-module.exports.LineChecker = LineChecker;
-module.exports.LineSolver = LineSolver;
-module.exports.LineTree = LineTree;
+function do_analysis() {
+  state.sc = new SuitCombination(cards_from_string(state.n), cards_from_string(state.s));
+  state.lc = new LineChecker(state.sc);
+  state.ls = new LineSolver(state.lc);
+  state.lines = state.ls.solve();
+}
+
+function clear_display() {
+  var div_analysis = document.getElementById('analysis');
+  div_analysis.innerHTML = '';
+}
+
+function display() {
+  var div_analysis = document.getElementById('analysis');
+  if (!state.lines.length) {
+      div_analysis.innerHTML = '';
+  } else {
+    let tableData = analysis_results(state.sc, state.lines, state.lc.tricks_total, !state.show_all_lines);
+    var div_analysis = document.getElementById('analysis');
+    div_analysis.innerHTML = '';
+    var table = document.createElement('table');
+    var tableBody = document.createElement('tbody');
+    tableData.forEach(function(row) {
+        tableBody.appendChild(row.make_row(table));
+    });
+    table.appendChild(tableBody);
+    div_analysis.appendChild(table);
+  }
+}
+
+function init() {
+    params = new URLSearchParams(window.location.search);
+    if (params.has('n')) {
+        state.update_from_url();
+        document.getElementById('north').value = state.n;
+        document.getElementById('south').value = state.s;
+        document.getElementById('filter').checked = !state.show_all_lines;
+    }
+    display();
+}
+window.addEventListener('load', init, false);
+window.addEventListener('popstate', init, false);
+
+function analyze(north, south, filter) {
+  state.update(north, south, !filter);
+  history.pushState(null, state.title(), state.url_string());
+  clear_display();
+  do_analysis();
+  display();
+  history.replaceState(null, state.title(), state.url_string());
+  return false;
+}
+
+function refilter(filter) {
+    state.show_all_lines = !filter;
+    display();
+    history.replaceState(null, state.title(), state.url_string());
+}
+
+if (typeof process !== 'undefined') {
+    if (process.env.NODE_ENV === "test") {
+        module.exports.cards_from_string = cards_from_string
+        module.exports.SuitCombination = SuitCombination;
+        module.exports.LineChecker = LineChecker;
+        module.exports.LineSolver = LineSolver;
+        module.exports.LineTree = LineTree;
+    }
+}

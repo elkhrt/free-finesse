@@ -1,13 +1,18 @@
-<html>
+<html lang='en-GB'>
     <head>
+        <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+        <meta http-equiv="content-language" content="en-GB"/>        
     </head>
     <body>
         <script src='main.js'></script>
         Suit Combination Analyzer<br/>
-        <input type="text" id="north" value="AQT98"><br/>
-        <input type="text" id="south" value="7654"><br/>
-        <input type="checkbox" id="filter" checked="checked">Only report best lines.<br/>
-        <button onclick='analyze(document.getElementById("north").value, document.getElementById("south").value, document.getElementById("filter").checked)'>Analyze</button>
-        <div id='analysis'>Analysis results go here</div>
+        <form onsubmit='{ analyze(document.getElementById("north").value, document.getElementById("south").value, document.getElementById("filter").checked); return false; }'>
+            <input type="text" id="north" value="AQT98"><br/>
+            <input type="text" id="south" value="7654"><br/>
+            <input type="checkbox" id="filter" checked="checked" onclick='refilter(document.getElementById("filter").checked)'>Only show best lines.<br/>
+            <input type="submit" value='Analyze'>
+        </form>
+        <div id='analysis'></div>
+        <div id='play'></div>
     </body>
 </html>
